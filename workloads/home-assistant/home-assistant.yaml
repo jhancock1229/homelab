@@ -1,0 +1,39 @@
+# Home Assistant (container install). Reach it at http://pi5-8b:8123
+# - hostNetwork: device discovery (mDNS, SSDP) needs the node's own network.
+# - Pinned to pi5-8b: that is where a Zigbee or meter-reading USB radio will be
+#   plugged in later. Change the nodeSelector if you pick a different Pi.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: home-assistant-config, namespace: home}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 5Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: home-assistant, namespace: home}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: home-assistant}}
+  template:
+    metadata: {labels: {app: home-assistant}}
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      nodeSelector: {kubernetes.io/hostname: pi5-8b}
+      containers:
+        - name: home-assistant
+          image: ghcr.io/home-assistant/home-assistant:stable
+          env:
+            - {name: TZ, value: America/Denver}
+          ports:
+            - {containerPort: 8123, hostPort: 8123}
+          volumeMounts:
+            - {name: config, mountPath: /config}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {memory: 2Gi}
+      volumes:
+        - name: config
+          persistentVolumeClaim: {claimName: home-assistant-config}

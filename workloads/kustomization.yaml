@@ -1,0 +1,12 @@
+# Everything except the test service:  kubectl apply -k workloads/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespaces.yaml
+  - home-assistant/home-assistant.yaml
+  - mosquitto/mosquitto.yaml
+  - monitoring/kube-prometheus-stack.yaml
+  - uptime-kuma/uptime-kuma.yaml
+  - speedtest-tracker/speedtest-tracker.yaml
+  - homepage/homepage.yaml
+  - paperless/paperless.yaml

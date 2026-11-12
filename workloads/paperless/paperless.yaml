@@ -1,0 +1,95 @@
+# Paperless-ngx: scanned bills and documents, searchable.  http://pi5-8a:30034
+# Needs the paperless secret first; see the README.
+# PAPERLESS_URL must match the address you type in the browser, or logins fail.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: paperless-data, namespace: apps}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 5Gi}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: paperless-media, namespace: apps}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 20Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: paperless-redis, namespace: apps}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: paperless-redis}}
+  template:
+    metadata: {labels: {app: paperless-redis}}
+    spec:
+      containers:
+        - name: redis
+          image: redis:7
+          ports:
+            - {containerPort: 6379}
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {memory: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: paperless-redis, namespace: apps}
+spec:
+  selector: {app: paperless-redis}
+  ports:
+    - {port: 6379, targetPort: 6379}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: paperless, namespace: apps}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: paperless}}
+  template:
+    metadata: {labels: {app: paperless}}
+    spec:
+      # Kubernetes injects PAPERLESS_PORT for a service named "paperless",
+      # which the app would misread as its own setting.
+      enableServiceLinks: false
+      containers:
+        - name: paperless
+          image: ghcr.io/paperless-ngx/paperless-ngx:latest
+          env:
+            - {name: PAPERLESS_REDIS, value: "redis://paperless-redis:6379"}
+            - {name: PAPERLESS_URL, value: "http://pi5-8a:30034"}
+            - {name: PAPERLESS_TIME_ZONE, value: America/Denver}
+            - {name: PAPERLESS_OCR_LANGUAGE, value: eng}
+            - name: PAPERLESS_SECRET_KEY
+              valueFrom:
+                secretKeyRef: {name: paperless, key: secret-key}
+            - name: PAPERLESS_ADMIN_USER
+              valueFrom:
+                secretKeyRef: {name: paperless, key: admin-user}
+            - name: PAPERLESS_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: paperless, key: admin-password}
+          ports:
+            - {containerPort: 8000}
+          volumeMounts:
+            - {name: data, mountPath: /usr/src/paperless/data}
+            - {name: media, mountPath: /usr/src/paperless/media}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {memory: 2Gi}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: paperless-data}
+        - name: media
+          persistentVolumeClaim: {claimName: paperless-media}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: paperless, namespace: apps}
+spec:
+  type: NodePort
+  selector: {app: paperless}
+  ports:
+    - {port: 8000, targetPort: 8000, nodePort: 30034}

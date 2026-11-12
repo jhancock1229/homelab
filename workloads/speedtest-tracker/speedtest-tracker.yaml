@@ -1,0 +1,51 @@
+# Scheduled internet speed tests, charted.  http://<any node>:30032
+# Needs the speedtest-tracker secret first; see the README.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: speedtest-tracker-config, namespace: monitoring}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 1Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: speedtest-tracker, namespace: monitoring}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: speedtest-tracker}}
+  template:
+    metadata: {labels: {app: speedtest-tracker}}
+    spec:
+      containers:
+        - name: speedtest-tracker
+          image: lscr.io/linuxserver/speedtest-tracker:latest
+          env:
+            - {name: PUID, value: "1000"}
+            - {name: PGID, value: "1000"}
+            - {name: DB_CONNECTION, value: sqlite}
+            - {name: APP_TIMEZONE, value: America/Denver}
+            - {name: DISPLAY_TIMEZONE, value: America/Denver}
+            - {name: SPEEDTEST_SCHEDULE, value: "17 */3 * * *"}
+            - name: APP_KEY
+              valueFrom:
+                secretKeyRef: {name: speedtest-tracker, key: app-key}
+          ports:
+            - {containerPort: 80}
+          volumeMounts:
+            - {name: config, mountPath: /config}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 512Mi}
+      volumes:
+        - name: config
+          persistentVolumeClaim: {claimName: speedtest-tracker-config}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: speedtest-tracker, namespace: monitoring}
+spec:
+  type: NodePort
+  selector: {app: speedtest-tracker}
+  ports:
+    - {port: 80, targetPort: 80, nodePort: 30032}

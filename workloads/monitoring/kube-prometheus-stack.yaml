@@ -1,0 +1,50 @@
+# Prometheus + Grafana, installed by the Helm controller built into k3s.
+# Grafana: http://<any node>:30030   (login comes from the grafana-admin secret)
+# Needs the secret first; see the README.
+# Pin `version:` to a chart release once the first install works.
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: kube-prometheus-stack
+  namespace: kube-system
+spec:
+  repo: https://prometheus-community.github.io/helm-charts
+  chart: kube-prometheus-stack
+  targetNamespace: monitoring
+  valuesContent: |-
+    grafana:
+      admin:
+        existingSecret: grafana-admin
+        userKey: admin-user
+        passwordKey: admin-password
+      service:
+        type: NodePort
+        nodePort: 30030
+      persistence:
+        enabled: true
+        size: 2Gi
+    prometheus:
+      prometheusSpec:
+        retention: 30d
+        resources:
+          requests:
+            memory: 512Mi
+          limits:
+            memory: 2Gi
+        storageSpec:
+          volumeClaimTemplate:
+            spec:
+              accessModes: ["ReadWriteOnce"]
+              resources:
+                requests:
+                  storage: 20Gi
+    # k3s runs these inside one process, so the chart's default scrape
+    # targets for them do not exist and would only raise false alerts.
+    kubeEtcd:
+      enabled: false
+    kubeControllerManager:
+      enabled: false
+    kubeScheduler:
+      enabled: false
+    kubeProxy:
+      enabled: false

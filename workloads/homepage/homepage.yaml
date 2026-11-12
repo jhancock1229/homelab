@@ -1,0 +1,76 @@
+# One landing page for everything.  http://<any node>:30033
+# Edit the links in the ConfigMap; they assume the node names in inventory.yml.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: homepage-config, namespace: apps}
+data:
+  settings.yaml: |
+    title: Homelab
+    headerStyle: clean
+  widgets.yaml: |
+    - datetime:
+        format:
+          dateStyle: medium
+          timeStyle: short
+  bookmarks.yaml: |
+    []
+  services.yaml: |
+    - Home:
+        - Home Assistant:
+            href: http://pi5-8b:8123
+            description: Devices, automations, energy
+    - Monitoring:
+        - Grafana:
+            href: http://pi5-8a:30030
+            description: Cluster and long-term charts
+        - Uptime Kuma:
+            href: http://pi5-8a:30031
+            description: Up/down checks
+        - Speedtest Tracker:
+            href: http://pi5-8a:30032
+            description: Internet speed over time
+    - Documents:
+        - Paperless:
+            href: http://pi5-8a:30034
+            description: Bills and scanned documents
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: homepage, namespace: apps}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: homepage}}
+  template:
+    metadata: {labels: {app: homepage}}
+    spec:
+      containers:
+        - name: homepage
+          image: ghcr.io/gethomepage/homepage:latest
+          env:
+            # Reached by several node names over Tailscale, so the host check is off.
+            - {name: HOMEPAGE_ALLOWED_HOSTS, value: "*"}
+          ports:
+            - {containerPort: 3000}
+          volumeMounts:
+            - {name: config, mountPath: /app/config}
+            - {name: files, mountPath: /app/config/settings.yaml, subPath: settings.yaml}
+            - {name: files, mountPath: /app/config/widgets.yaml, subPath: widgets.yaml}
+            - {name: files, mountPath: /app/config/bookmarks.yaml, subPath: bookmarks.yaml}
+            - {name: files, mountPath: /app/config/services.yaml, subPath: services.yaml}
+          resources:
+            requests: {cpu: 25m, memory: 96Mi}
+            limits: {memory: 384Mi}
+      volumes:
+        - name: config
+          emptyDir: {}
+        - name: files
+          configMap: {name: homepage-config}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: homepage, namespace: apps}
+spec:
+  type: NodePort
+  selector: {app: homepage}
+  ports:
+    - {port: 3000, targetPort: 3000, nodePort: 30033}
