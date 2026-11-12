@@ -1,0 +1,98 @@
+---
+# Base layer: everything a node needs before k3s. Safe to re-run.
+#   ansible-playbook playbooks/base.yml
+#   ansible-playbook playbooks/base.yml --skip-tags tailscale   # if Tailscale is already set up
+
+- name: Preflight
+  hosts: k3s_cluster
+  gather_facts: false
+  tasks:
+    - name: Inventory values are filled in
+      ansible.builtin.assert:
+        that:
+          - k3s_version != "SET_ME"
+          - vault_k3s_token is defined
+          - vault_k3s_token != "CHANGE_ME"
+        fail_msg: "Set k3s_version in inventory.yml and the secrets in group_vars/k3s_cluster/vault.yml first."
+      run_once: true
+      delegate_to: localhost
+
+- name: Base configuration
+  hosts: k3s_cluster
+  become: true
+  tasks:
+    - name: Hostname matches the inventory name
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Package index is fresh and packages are upgraded
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+        upgrade: safe
+
+    - name: Base packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - unattended-upgrades
+        state: present
+
+    - name: Security updates install on their own (no automatic reboot)
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        mode: "0644"
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+
+    - name: Swap is off (k3s requirement)
+      ansible.builtin.command: swapon --noheadings
+      register: swap
+      changed_when: false
+      failed_when: swap.stdout | length > 0
+
+    - name: Tailscale signing key
+      ansible.builtin.get_url:
+        url: "https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.noarmor.gpg"
+        dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+        mode: "0644"
+      tags: tailscale
+
+    - name: Tailscale apt source
+      ansible.builtin.get_url:
+        url: "https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.tailscale-keyring.list"
+        dest: /etc/apt/sources.list.d/tailscale.list
+        mode: "0644"
+      tags: tailscale
+
+    - name: Tailscale installed
+      ansible.builtin.apt:
+        name: tailscale
+        state: present
+        update_cache: true
+      tags: tailscale
+
+    - name: Tailscale login state
+      ansible.builtin.command: tailscale status
+      register: ts
+      changed_when: false
+      failed_when: false
+      tags: tailscale
+
+    - name: Tailscale joined to the tailnet
+      ansible.builtin.command: >
+        tailscale up --authkey={{ vault_tailscale_authkey }} --hostname={{ inventory_hostname }}
+      when: ts.rc != 0
+      no_log: true
+      tags: tailscale
+
+    - name: Reboot if the upgrade needs one
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_flag
+
+    - name: Reboot (one node at a time)
+      ansible.builtin.reboot:
+      when: reboot_flag.stat.exists
+      throttle: 1

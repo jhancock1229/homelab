@@ -1,0 +1,6 @@
+# The k3s project's own playbooks. Pin `version` to a commit or tag once the
+# first install works, so a later run cannot change behaviour under you.
+collections:
+  - name: https://github.com/k3s-io/k3s-ansible.git
+    type: git
+    version: master
