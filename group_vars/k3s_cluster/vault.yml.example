@@ -1,0 +1,9 @@
+# Copy to vault.yml, fill in, then encrypt:
+#   cp group_vars/k3s_cluster/vault.yml.example group_vars/k3s_cluster/vault.yml
+#   ansible-vault encrypt group_vars/k3s_cluster/vault.yml
+#
+# vault_k3s_token: any long random string, e.g. from  openssl rand -hex 32
+# vault_tailscale_authkey: a reusable auth key from the Tailscale admin console
+#                          (only needed if base.yml installs Tailscale for you)
+vault_k3s_token: "CHANGE_ME"
+vault_tailscale_authkey: "CHANGE_ME"
