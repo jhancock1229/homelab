@@ -1,0 +1,55 @@
+# MQTT broker. Reachable only inside the cluster, at mosquitto.home.svc:1883
+# (use that host name in Home Assistant's MQTT integration).
+# Anonymous access is acceptable only because nothing outside the cluster can
+# reach it. Before pointing LAN sensors at it: add a password file and expose it.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: mosquitto-config, namespace: home}
+data:
+  mosquitto.conf: |
+    listener 1883
+    allow_anonymous true
+    persistence true
+    persistence_location /mosquitto/data/
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: mosquitto-data, namespace: home}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 1Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: mosquitto, namespace: home}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: mosquitto}}
+  template:
+    metadata: {labels: {app: mosquitto}}
+    spec:
+      containers:
+        - name: mosquitto
+          image: eclipse-mosquitto:2
+          ports:
+            - {containerPort: 1883}
+          volumeMounts:
+            - {name: config, mountPath: /mosquitto/config/mosquitto.conf, subPath: mosquitto.conf}
+            - {name: data, mountPath: /mosquitto/data}
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {memory: 128Mi}
+      volumes:
+        - name: config
+          configMap: {name: mosquitto-config}
+        - name: data
+          persistentVolumeClaim: {claimName: mosquitto-data}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: mosquitto, namespace: home}
+spec:
+  selector: {app: mosquitto}
+  ports:
+    - {port: 1883, targetPort: 1883}

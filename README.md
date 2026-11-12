@@ -86,3 +86,65 @@ ansible-playbook playbooks/base.yml --skip-tags tailscale
 - Secrets live only in `vault.yml` (encrypted) and `.vault-pass` (ignored by git).
 - Ansible manages machines. Kubernetes manifests manage apps. Do not deploy apps with Ansible.
 - After the first successful install, pin `version` in `requirements.yml` to a commit.
+
+## Apps
+
+Seven apps live under `workloads/`. Deploy them after the cluster has passed its soak.
+
+| App | Address | Purpose |
+| --- | --- | --- |
+| Home Assistant | `http://pi5-8b:8123` | Devices, automations, the Energy dashboard |
+| Mosquitto | inside the cluster only: `mosquitto.home.svc:1883` | Message bus for sensors |
+| Grafana (with Prometheus) | `http://<any node>:30030` | Cluster health and long-term charts |
+| Uptime Kuma | `http://<any node>:30031` | Up/down checks and alerts |
+| Speedtest Tracker | `http://<any node>:30032` | Internet speed every three hours |
+| Homepage | `http://<any node>:30033` | Landing page linking the rest |
+| Paperless-ngx | `http://pi5-8a:30034` | Bills and scanned documents |
+
+All addresses work from your phone over Tailscale.
+
+### 1. Create the secrets (once; these never go in git)
+
+```sh
+kubectl apply -f workloads/namespaces.yaml
+
+kubectl -n monitoring create secret generic grafana-admin \
+  --from-literal=admin-user=admin \
+  --from-literal=admin-password="$(openssl rand -base64 18)"
+
+kubectl -n monitoring create secret generic speedtest-tracker \
+  --from-literal=app-key="base64:$(openssl rand -base64 32)"
+
+kubectl -n apps create secret generic paperless \
+  --from-literal=secret-key="$(openssl rand -hex 32)" \
+  --from-literal=admin-user=admin \
+  --from-literal=admin-password="$(openssl rand -base64 18)"
+```
+
+To read a generated password back:
+
+```sh
+kubectl -n monitoring get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d; echo
+```
+
+### 2. Deploy
+
+```sh
+kubectl apply -k workloads/
+kubectl get pods -A --watch     # wait until everything is Running
+```
+
+**Check:** open Homepage on your phone and follow each link.
+
+### 3. Notes
+
+- **Storage** uses the `local-path` class that ships with k3s. Each app's data
+  lives on the NVMe of the node it first started on, and the app stays on that
+  node. Nothing here is backed up yet.
+- **Home Assistant** is pinned to pi5-8b and uses that node's network directly.
+  Plug USB radios into pi5-8b.
+- **Mosquitto** accepts anonymous connections and is not reachable from outside
+  the cluster. Add a password and expose it before pointing LAN sensors at it.
+- **Image versions** track `stable` or `latest`. Pin them once things work, so
+  an upgrade is a commit and not a surprise.
+- **Updating one app:** edit its manifest, commit, `kubectl apply -k workloads/`.
